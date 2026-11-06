@@ -7,25 +7,40 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Windows.Forms; // Для трея
+using Drawing = System.Drawing; // Чтобы не было конфликта имен с WPF
 
 namespace DalimoDesktopinfo
 {
     public partial class MainWindow : Window
     {
-        private DispatcherTimer _timer;
+        private DispatcherTimer _updateTimer;
+        private DispatcherTimer _autoResetTimer; // Таймер для возврата окна
         private DateTime _bootTime;
+
+        private NotifyIcon _notifyIcon; // Иконка в трее
 
         public MainWindow()
         {
             InitializeComponent();
             this.Loaded += MainWindow_Loaded;
-            _bootTime = DateTime.Now.AddMilliseconds(-Environment.TickCount);
-            UpdateData();
+            this.Closing += MainWindow_Closing;
 
-            _timer = new DispatcherTimer();
-            _timer.Interval = TimeSpan.FromSeconds(5);
-            _timer.Tick += (s, e) => UpdateData();
-            _timer.Start();
+            _bootTime = DateTime.Now.AddMilliseconds(-Environment.TickCount);
+
+            // Таймер обновления данных (каждые 5 секунд)
+            _updateTimer = new DispatcherTimer();
+            _updateTimer.Interval = TimeSpan.FromSeconds(5);
+            _updateTimer.Tick += (s, e) => UpdateData();
+            _updateTimer.Start();
+
+            // Таймер возврата окна на место (каждую минуту)
+            _autoResetTimer = new DispatcherTimer();
+            _autoResetTimer.Interval = TimeSpan.FromMinutes(1);
+            _autoResetTimer.Tick += (s, e) => ResetWindowPosition();
+            _autoResetTimer.Start();
+
+            InitializeTrayIcon();
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -34,13 +49,98 @@ namespace DalimoDesktopinfo
             ResetWindowPosition();
         }
 
+        // --- Логика иконки в трее ---
+        private void InitializeTrayIcon()
+        {
+            _notifyIcon = new NotifyIcon();
+
+            // Загружаем иконку прямо из нашего .exe файла
+            try
+            {
+                _notifyIcon.Icon = Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            }
+            catch
+            {
+                _notifyIcon.Icon = Drawing.SystemIcons.Application;
+            }
+
+            _notifyIcon.Text = "Dalimo Desktop Info";
+            _notifyIcon.Visible = true;
+
+            // Создаем контекстное меню для трея (точно такое же, как у виджета)
+            var contextMenu = new ContextMenuStrip();
+
+            var refreshItem = new ToolStripMenuItem("Обновить");
+            refreshItem.Click += (s, e) => UpdateData();
+
+            var resetItem = new ToolStripMenuItem("Восстановить положение");
+            resetItem.Click += (s, e) => ResetWindowPosition();
+
+            var settingsItem = new ToolStripMenuItem("Настройки");
+            settingsItem.Click += (s, e) =>
+            {
+                var sw = new SettingsWindow { Owner = this };
+                if (sw.ShowDialog() == true) ApplySettings();
+            };
+
+            var aboutItem = new ToolStripMenuItem("О программе");
+            aboutItem.Click += (s, e) =>
+            {
+                System.Windows.MessageBox.Show("Dalimo Desktop Info\n\nАвтор: ZubovDS by Dalimo\nВерсия: 1.2\n\n© 2024", "О программе", MessageBoxButton.OK, MessageBoxImage.Information);
+            };
+
+            var exitItem = new ToolStripMenuItem("Выход");
+            exitItem.Click += (s, e) =>
+            {
+                _notifyIcon.Visible = false;
+                // Разрешаем приложению закрыться
+                System.Windows.Application.Current.ShutdownMode = ShutdownMode.OnMainWindowClose;
+                System.Windows.Application.Current.Shutdown();
+            };
+
+            // Собираем меню
+            contextMenu.Items.Add(refreshItem);
+            contextMenu.Items.Add(resetItem);
+            contextMenu.Items.Add(new ToolStripSeparator());
+            contextMenu.Items.Add(settingsItem);
+            contextMenu.Items.Add(aboutItem);
+            contextMenu.Items.Add(new ToolStripSeparator());
+            contextMenu.Items.Add(exitItem);
+
+            _notifyIcon.ContextMenuStrip = contextMenu;
+
+            // Двойной клик по иконке показывает/скрывает виджет
+            _notifyIcon.DoubleClick += (s, e) =>
+            {
+                if (this.IsVisible) this.Hide();
+                else this.Show();
+            };
+        }
+
+        // Обработка закрытия окна
+        private void MainWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            // Если приложение закрывается по команде "Выход", просто скрываем иконку
+            if (System.Windows.Application.Current.ShutdownMode == ShutdownMode.OnMainWindowClose)
+            {
+                _notifyIcon.Visible = false;
+                _notifyIcon.Dispose();
+                return;
+            }
+
+            // В остальных случаях (например, Alt+F4) скрываем окно в трей
+            e.Cancel = true;
+            this.Hide();
+        }
+
+        // --- Логика отображения ---
+
         public void ApplySettings()
         {
             var s = SettingsManager.Load();
 
             try
             {
-                // Настройка фона с прозрачностью
                 var brush = (SolidColorBrush)new BrushConverter().ConvertFromString(s.BackgroundColor);
                 byte alpha = (byte)(s.BackgroundOpacity * 255 / 100);
                 brush.Color = Color.FromArgb(alpha, brush.Color.R, brush.Color.G, brush.Color.B);
@@ -48,7 +148,6 @@ namespace DalimoDesktopinfo
             }
             catch { }
 
-            // Настройка текста (с защитой от пустых значений)
             TxtHost.FontSize = s.HostFontSize;
             if (!string.IsNullOrWhiteSpace(s.HostColor))
             {
@@ -70,7 +169,6 @@ namespace DalimoDesktopinfo
                 catch { TxtUptime.Foreground = Brushes.Cyan; }
             }
 
-            // Обновляем сетевые адаптеры, чтобы применить к ним настройки
             UpdateData();
         }
 
@@ -80,6 +178,7 @@ namespace DalimoDesktopinfo
             this.Top = 10;
         }
 
+        // --- Обработчики меню виджета ---
         private void MenuRefresh_Click(object sender, RoutedEventArgs e) => UpdateData();
         private void MenuResetPosition_Click(object sender, RoutedEventArgs e) => ResetWindowPosition();
 
@@ -91,10 +190,15 @@ namespace DalimoDesktopinfo
 
         private void MenuAbout_Click(object sender, RoutedEventArgs e)
         {
-            MessageBox.Show("DalimoDesktopinfo\n\nАвтор: ZubovDS by MadLab\nВерсия: 1.1\n\n© 2026", "О программе", MessageBoxButton.OK, MessageBoxImage.Information);
+            System.Windows.MessageBox.Show("Dalimo Desktop Info\n\nАвтор: ZubovDS by Dalimo\nВерсия: 1.2\n\n© 2024", "О программе", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        private void MenuExit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
+        private void MenuExit_Click(object sender, RoutedEventArgs e)
+        {
+            _notifyIcon.Visible = false;
+            System.Windows.Application.Current.ShutdownMode = ShutdownMode.OnMainWindowClose;
+            System.Windows.Application.Current.Shutdown();
+        }
 
         private void DragHandle_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -129,14 +233,18 @@ namespace DalimoDesktopinfo
 
                 if (string.IsNullOrEmpty(ip) || ip == "0.0.0.0") continue;
 
-                // Безопасная конвертация цветов (если в настройках мусор, используем дефолт)
                 Brush safeNameColor = Brushes.LightGreen;
                 Brush safeMacColor = Brushes.LightGray;
                 Brush safeIpColor = Brushes.Cyan;
 
-                try { safeNameColor = (SolidColorBrush)new BrushConverter().ConvertFromString(s.NameColor); } catch { }
-                try { safeMacColor = (SolidColorBrush)new BrushConverter().ConvertFromString(s.MacColor); } catch { }
-                try { safeIpColor = (SolidColorBrush)new BrushConverter().ConvertFromString(s.IpColor); } catch { }
+                if (!string.IsNullOrWhiteSpace(s.NameColor))
+                    try { safeNameColor = (SolidColorBrush)new BrushConverter().ConvertFromString(s.NameColor); } catch { }
+
+                if (!string.IsNullOrWhiteSpace(s.MacColor))
+                    try { safeMacColor = (SolidColorBrush)new BrushConverter().ConvertFromString(s.MacColor); } catch { }
+
+                if (!string.IsNullOrWhiteSpace(s.IpColor))
+                    try { safeIpColor = (SolidColorBrush)new BrushConverter().ConvertFromString(s.IpColor); } catch { }
 
                 adapters.Add(new NetworkInfo
                 {
