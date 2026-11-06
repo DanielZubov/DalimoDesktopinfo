@@ -39,6 +39,7 @@
                         <TextBlock Text="Аптайм:" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center"/>
                         <TextBox x:Name="TxtUptimeSize" Grid.Row="2" Grid.Column="1" Margin="0,5" Text="12"/>
                         <TextBox x:Name="TxtUptimeColor" Grid.Row="2" Grid.Column="2" Margin="5,5,0,5" Text="#00FFCC"/>
+
                     </Grid>
                 </ScrollViewer>
             </TabItem>
