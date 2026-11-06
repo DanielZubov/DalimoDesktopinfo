@@ -86,7 +86,7 @@ namespace DalimoDesktopinfo
             var aboutItem = new ToolStripMenuItem("О программе");
             aboutItem.Click += (s, e) =>
             {
-                System.Windows.MessageBox.Show("Dalimo Desktop Info\n\nАвтор: ZubovDS by Dalimo\nВерсия: 1.2\n\n© 2026", "О программе", MessageBoxButton.OK, MessageBoxImage.Information);
+                System.Windows.MessageBox.Show("Dalimo Desktop Info\n\nАвтор: ZubovDS by MadLab\nВерсия: 1.2\n\n© 2026", "О программе", MessageBoxButton.OK, MessageBoxImage.Information);
             };
 
             var exitItem = new ToolStripMenuItem("Выход");
